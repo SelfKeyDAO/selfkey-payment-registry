@@ -40,7 +40,7 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         _setupRole(ISSUER_ROLE, msg.sender);
     }
 
-     /**
+    /**
      * @dev Modifier to make a function callable only when the contract is not paused.
      *
      * Requirements:
@@ -161,7 +161,10 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
 
         _cancelActivePayments(msg.sender, _credentialType);
 
-        payable(_receiverWallet).transfer(msg.value);
+        (bool sent, ) = _receiverWallet.call{value: msg.value}("");
+        require(sent, "Failed to send Ether");
+
+        _paymentRegistry[msg.sender].push(PaymentInfo(block.timestamp, _credentialType, true));
         emit CredentialPaid(msg.sender, address(0), msg.value);
     }
 
@@ -196,5 +199,4 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
             }
         }
     }
-
 }
