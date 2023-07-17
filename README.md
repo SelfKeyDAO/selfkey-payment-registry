@@ -1,4 +1,4 @@
-# Selfkey Payment Registry contract
+# Selfkey Payments Registry contract
 
 ## Overview
 
