@@ -1,7 +1,7 @@
 # Selfkey Payments Registry contract
 
 ## Overview
-
+Payments registry for Selfkey.ID
 
 ## Development
 
