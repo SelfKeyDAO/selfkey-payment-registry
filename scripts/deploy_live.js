@@ -5,7 +5,7 @@ async function main() {
     console.log("Deploying contracts with the account:", deployer.address);
 
     const contractFactory = await hre.ethers.getContractFactory("SelfkeyPaymentRegistry");
-    const contract = await upgrades.deployProxy(contractFactory, []);
+    const contract = await upgrades.deployProxy(contractFactory, [], { timeout: 300000 });
     await contract.deployed();
 
     console.log("Deployed contract address:", contract.address);

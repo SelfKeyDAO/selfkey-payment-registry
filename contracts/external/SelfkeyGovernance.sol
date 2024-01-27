@@ -4,6 +4,7 @@ pragma solidity 0.8.19;
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "./ISelfkeyGovernance.sol";
+import "hardhat/console.sol";
 
 contract SelfkeyGovernance is ISelfkeyGovernance, Initializable, OwnableUpgradeable  {
 
@@ -14,6 +15,8 @@ contract SelfkeyGovernance is ISelfkeyGovernance, Initializable, OwnableUpgradea
     mapping(uint256 => address) public addresses;
     mapping(uint256 => uint256) public numbers;
     mapping(uint256 => bytes32) public data;
+
+    mapping(uint256 => Coupons) public coupons;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -39,7 +42,7 @@ contract SelfkeyGovernance is ISelfkeyGovernance, Initializable, OwnableUpgradea
 
     function getCurrencies() external view returns (PaymentCurrency[] memory) {
         uint _count = _currencyEntries.length;
-        PaymentCurrency[] memory _activeCurrencies = new PaymentCurrency[](6);
+        PaymentCurrency[] memory _activeCurrencies = new PaymentCurrency[](_count);
         for(uint i=0; i<_count; i++) {
             PaymentCurrency memory record = _currencies[_currencyEntries[i]];
              _activeCurrencies[i] = record;
@@ -77,5 +80,31 @@ contract SelfkeyGovernance is ISelfkeyGovernance, Initializable, OwnableUpgradea
             }
         }
         return false;
+    }
+
+    function setCoupon(string memory _coupon, uint256 _discount, uint256 _amount, uint256 _expiry, bool _active, address _wallet, address _affiliateWallet, uint256 _affiliateShare) public onlyOwner {
+        coupons[uint256(keccak256(abi.encodePacked(_coupon)))] = Coupons(_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare);
+    }
+
+    function getCoupon(string memory _coupon) public view returns (Coupons memory) {
+        return coupons[uint256(keccak256(abi.encodePacked(_coupon)))];
+    }
+
+    function removeCoupon(string memory _coupon) public onlyOwner {
+        delete coupons[uint256(keccak256(abi.encodePacked(_coupon)))];
+    }
+
+    function getValidCoupon(string memory _couponCode, address _wallet) public view returns (Coupons memory) {
+        Coupons memory _coupon = coupons[uint256(keccak256(abi.encodePacked(_couponCode)))];
+
+        if (!_coupon.active || (_coupon.expiry > 0 && _coupon.expiry < block.timestamp)) {
+            return Coupons("", 0, 0, 0, false, address(0), address(0), 0);
+        }
+        if (_coupon.wallet != address(0)) {
+            if (_coupon.wallet != _wallet) {
+                return Coupons("", 0, 0, 0, false, address(0), address(0), 0);
+            }
+        }
+        return _coupon;
     }
 }
