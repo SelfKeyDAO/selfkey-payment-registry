@@ -46,23 +46,6 @@ describe("Selfkey Payment Tests", function () {
         });
     });
 
-    describe("Upgradeability", function() {
-        it("Should upgrade correctly", async function() {
-            [owner, addr1, addr2, receiver, signer, ...addrs] = await ethers.getSigners();
-
-            let factory = await ethers.getContractFactory("SelfkeyPaymentRegistryV1");
-            contract = await upgrades.deployProxy(factory, []);
-            await contract.deployed();
-
-            await contract.connect(owner).setGovernanceContract(govContract.address, { from: owner.address });
-
-            let factory2 = await ethers.getContractFactory("SelfkeyPaymentRegistry");
-            const upgradedContract = await upgrades.upgradeProxy(contract.address, factory2);
-
-            expect(await contract.governanceContractAddress()).to.equal(govContract.address);
-        });
-    });
-
 
     describe("Upgradeability", function() {
         it("Should upgrade correctly", async function() {
@@ -82,7 +65,7 @@ describe("Selfkey Payment Tests", function () {
         });
     });
 
-    describe("Payment functions", function() {
+    describe("Simple Payment Scenario", function() {
         it("Can pay in native currency", async function() {
             await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
@@ -296,9 +279,10 @@ describe("Selfkey Payment Tests", function () {
         })
     });
 
-    describe("Coupons", function() {
-        it("Can pay in ETH with pct coupon", async function() {
-            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
+    describe("Payment with Coupons Scenario", function() {
+        it("Can pay in ETH with Coupon", async function() {
+            const amount = 200;
+            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, amount, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(ZERO_ADDRESS);
@@ -307,21 +291,26 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
 
+            const discount = 30;
             const coupon = 'SK_KYC_COUPON';
-            // (string memory _coupon, uint256 _discount, uint256 _amount, uint256 _expiry, bool _active, address _wallet, address _affiliateWallet, uint256 _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 50, 0, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+
+            // Expected discount amount
+            const expectedAmount = amount - (amount * discount / 100);
 
             const prevBalance = await ethers.provider.getBalance(addr2.address);
-            expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 50 }))
+            expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: expectedAmount }))
                 .to.emit(govContract, 'CredentialPaid');
 
             const balance = await ethers.provider.getBalance(addr2.address);
-            const totalBalance = ethers.BigNumber.from(prevBalance).add( 50 );
+            const totalBalance = ethers.BigNumber.from(prevBalance).add( expectedAmount );
             expect(`${balance}`).to.equal(`${totalBalance}`);
         });
 
-        it("Cannot pay in ETH with pct coupon if wrong amount", async function() {
-            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
+        it("Cannot pay in ETH with Coupon if wrong amount", async function() {
+            const amount = 500;
+            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, amount, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(ZERO_ADDRESS);
@@ -330,24 +319,29 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
 
+            const discount = 12;
             const coupon = 'SK_KYC_COUPON';
-            // (string memory _coupon, uint256 _discount, uint256 _amount, uint256 _expiry, bool _active, address _wallet, address _affiliateWallet, uint256 _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 50, 0, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+
+            // Expected discount invalid amount
+            const expectedInvalidAmount = amount - (amount * 40 / 100);
 
             const prevBalance = await ethers.provider.getBalance(addr2.address);
-            await expect( contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 40 }))
+            await expect( contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: expectedInvalidAmount }))
                 .to.be.revertedWith('Selfkey Governance: invalid amount');
         });
 
-        it("Can pay in ERC20 currency with pct coupon", async function() {
+        it("Can pay in ERC20 currency with Coupon", async function() {
+            const amount = 70;
             // Transfer some USDC
-            await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
+            await usdcContract.connect(owner).transfer(addr2.address, amount * 10**6, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amount * 10**6, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10, true, true, 0, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amount * 10**6, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -356,26 +350,32 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
+            const discount = 40;
             const coupon = 'SK_KYC_COUPON';
             // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 50, 0, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
 
-            expect(await contract.connect(addr2).payToken(5, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            // Expected discount amount
+            //const amountWithDecimals = amount * 10**6;
+            const expectedAmount = 42 * 10**6;
+            expect(await contract.connect(addr2).payToken(expectedAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.emit(govContract, 'CredentialPaid');
 
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(5);
+            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(expectedAmount);
             expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
         });
 
         it("Cannot pay in ERC20 currency with pct coupon if wrong amount", async function() {
+            const amount = 170;
+            const amountInDecimals = amount * 10**6;
             // Transfer some USDC
-            await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
+            await usdcContract.connect(owner).transfer(addr2.address, amountInDecimals, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amountInDecimals, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10, true, true, 0, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amountInDecimals, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -384,119 +384,28 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
+            const discount = 40;
             const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 50, 0, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
 
-            await expect(contract.connect(addr2).payToken(4, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
-                .to.be.revertedWith('Selfkey Governance: invalid amount');
-        });
-
-        it("Can pay in ETH with fixed coupon", async function() {
-            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
-                .to.emit(govContract, 'PaymentCurrencyUpdated');
-
-            const currency = await govContract.getCurrency(ZERO_ADDRESS);
-            expect(currency[0]).to.equal("ETH");
-
-            await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
-            await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
-
-            const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 25, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
-
-            const prevBalance = await ethers.provider.getBalance(addr2.address);
-            expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 25 }))
-                .to.emit(govContract, 'CredentialPaid');
-
-            const balance = await ethers.provider.getBalance(addr2.address);
-            const totalBalance = ethers.BigNumber.from(prevBalance).add( 25 );
-
-            expect(`${balance}`).to.equal(`${totalBalance}`);
-        });
-
-        it("Cannot pay in ETH with fixed coupon if wrong amount", async function() {
-            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
-                .to.emit(govContract, 'PaymentCurrencyUpdated');
-
-            const currency = await govContract.getCurrency(ZERO_ADDRESS);
-            expect(currency[0]).to.equal("ETH");
-
-            await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
-            await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
-
-            const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 25, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
-
-            const prevBalance = await ethers.provider.getBalance(addr2.address);
-            await expect(contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 20 }))
-                .to.be.revertedWith('Selfkey Governance: invalid amount');
-        });
-
-        it("Can pay in ERC20 currency with fixed coupon", async function() {
-            // Transfer some USDC
-            await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
-            // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
-            // Confirm receiver wallet has 0 USDC
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
-
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10, true, true, 0, { from: owner.address }))
-                .to.emit(govContract, 'PaymentCurrencyUpdated');
-
-            const currency = await govContract.getCurrency(usdcContract.address);
-            expect(currency[0]).to.equal("USDC");
-
-            await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
-            await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
-
-            const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 4, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
-
-            expect(await contract.connect(addr2).payToken(4, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
-                .to.emit(govContract, 'CredentialPaid');
-
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(4);
-            expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
-        });
-
-        it("Cannot pay in ERC20 currency with fixed coupon if wrong amount", async function() {
-            // Transfer some USDC
-            await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
-            // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
-            // Confirm receiver wallet has 0 USDC
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
-
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10, true, true, 0, { from: owner.address }))
-                .to.emit(govContract, 'PaymentCurrencyUpdated');
-
-            const currency = await govContract.getCurrency(usdcContract.address);
-            expect(currency[0]).to.equal("USDC");
-
-            await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
-            await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
-
-            const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 4, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
-
-            await expect( contract.connect(addr2).payToken(3, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            // Expected discount amount
+            const expectedInvalidAmount = amountInDecimals - (amountInDecimals * 60 / 100);
+            await expect(contract.connect(addr2).payToken(expectedInvalidAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.be.revertedWith('Selfkey Governance: invalid amount');
         });
 
         it("Can pay if coupon is for a wallet", async function() {
+            const amount = 38;
+            const amountWithDecimals = amount * 10**6;
             // Transfer some USDC
             await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amountWithDecimals, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10 * 10**6, true, true, 0, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amountWithDecimals, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -505,27 +414,31 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
+            const discount = 33;
             const coupon = 'SK_KYC_COUPON';
             // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 20, 0, true, addr2.address, ZERO_ADDRESS, 0, { from: owner.address });
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, addr2.address, ZERO_ADDRESS, 0, { from: owner.address });
 
-            expect(await contract.connect(addr2).payToken(2 * 10**6, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            const expectedAmount = amountWithDecimals - (amountWithDecimals * discount / 100);
+            expect(await contract.connect(addr2).payToken(expectedAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.emit(govContract, 'CredentialPaid');
 
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(2 * 10**6);
+            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(expectedAmount);
             expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
-            expect(await usdcContract.connect(owner).balanceOf(addr2.address, { from: owner.address })).to.equal(48 * 10**6);
+            expect(await usdcContract.connect(owner).balanceOf(addr2.address, { from: owner.address })).to.equal(50 * 10**6 - expectedAmount);
         });
 
         it("Cannot pay if coupon is for a wallet with wrong wallet", async function() {
+            const amount = 38;
+            const amountWithDecimals = amount * 10**6;
             // Transfer some USDC
             await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amountWithDecimals, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10 * 10**6, true, true, 0, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amountWithDecimals, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -534,11 +447,13 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
+            const discount = 33;
             const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 20, 0, true, addr3.address, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, addr3.address, ZERO_ADDRESS, 0, { from: owner.address });
 
-            await expect(contract.connect(addr2).payToken(2 * 10**6, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            const expectedAmount = amountWithDecimals - (amountWithDecimals * discount / 100);
+            await expect(contract.connect(addr2).payToken(expectedAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.be.revertedWith('Selfkey Governance: invalid amount');
         });
 
@@ -553,8 +468,8 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
 
             const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 25, 0, false, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, 25, 0, false, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
 
             const prevBalance = await ethers.provider.getBalance(addr2.address);
             await expect(contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 25 }))
@@ -566,15 +481,18 @@ describe("Selfkey Payment Tests", function () {
             expect(`${balance}`).to.equal(`${totalBalance}`);
         });
 
-        it("Can pay in ERC20 currency with fixed coupon and affiliate fee is shared", async function() {
+        it("Can pay in ERC20 with Coupon and Affiliate fee is shared", async function() {
+            const amount = 22;
+            const amountWithDecimals = amount * 10**6;
+
             // Transfer some USDC
             await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amountWithDecimals, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10 * 10**6, true, true, 0, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amountWithDecimals, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -583,19 +501,22 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
+            const discount = 23;
+            const fee = 40;
             const coupon = 'SK_KYC_COUPON';
             // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 5 * 10**6, 0, true, ZERO_ADDRESS, addr3.address, 40, { from: owner.address });
+            await govContract.connect(owner).setCoupon(coupon, discount, 0, true, ZERO_ADDRESS, addr3.address, fee, { from: owner.address });
 
-            expect(await contract.connect(addr2).payToken(5 * 10**6, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            const expectedAmount = amountWithDecimals - (amountWithDecimals * discount / 100);
+            expect(await contract.connect(addr2).payToken(expectedAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.emit(govContract, 'CredentialPaid');
 
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(3 * 10**6);
+            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(expectedAmount * 0.6);
             expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
-            expect(await usdcContract.connect(owner).balanceOf(addr3.address, { from: owner.address })).to.equal(2 * 10**6);
+            expect(await usdcContract.connect(owner).balanceOf(addr3.address, { from: owner.address })).to.equal(expectedAmount * 0.4);
         });
 
-        it("Can pay in ETH with 100% pct coupon", async function() {
+        it("Can pay in ETH with 100% discount coupon", async function() {
             await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, 100, true, true, 0, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
@@ -606,8 +527,8 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr2.address, { from: owner.address });
 
             const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 100, 0, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
+            // (_coupon, _discount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
+            await govContract.connect(owner).setCoupon(coupon, 100, 0, true, ZERO_ADDRESS, ZERO_ADDRESS, 0, { from: owner.address });
 
             const prevBalance = await ethers.provider.getBalance(addr2.address);
             expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: 0 }))
@@ -618,41 +539,17 @@ describe("Selfkey Payment Tests", function () {
             expect(`${balance}`).to.equal(`${totalBalance}`);
         });
 
-        it("Can pay in ERC20 currency with fixed coupon and affiliate fee is shared", async function() {
-            // Transfer some USDC
-            await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
-            // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
-            // Confirm receiver wallet has 0 USDC
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
-
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10 * 10**6, true, true, 0, { from: owner.address }))
-                .to.emit(govContract, 'PaymentCurrencyUpdated');
-
-            const currency = await govContract.getCurrency(usdcContract.address);
-            expect(currency[0]).to.equal("USDC");
-
-            await govContract.connect(owner).setEntryFreeStatus(true, { from: owner.address });
-            await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
-
-            const coupon = 'SK_KYC_COUPON';
-            // (_coupon, _discount, _amount, _expiry, _active, _wallet, _affiliateWallet, _affiliateShare)
-            await govContract.connect(owner).setCoupon(coupon, 0, 5 * 10**6, 0, true, ZERO_ADDRESS, addr3.address, 40, { from: owner.address });
-
-            expect(await contract.connect(addr2).payToken(5 * 10**6, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
-                .to.emit(govContract, 'CredentialPaid');
-
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(3 * 10**6);
-            expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
-            expect(await usdcContract.connect(owner).balanceOf(addr3.address, { from: owner.address })).to.equal(2 * 10**6);
-        });
     });
 
 
 
     describe("Discounts", function() {
-        it("Can pay in native currency with discount", async function() {
-            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, ethers.utils.parseUnits(`12`, 18), true, true, 23, { from: owner.address }))
+        it("Can pay in native currency with global discount", async function() {
+            const amount = 12;
+            const amountWithDecimals = amount * 10**6;
+            const discount = 22;
+
+            await expect(govContract.connect(owner).updatePaymentCurrency("ETH", ZERO_ADDRESS, 18, amountWithDecimals, true, true, discount, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(ZERO_ADDRESS);
@@ -664,23 +561,28 @@ describe("Selfkey Payment Tests", function () {
             const prevBalance = await ethers.provider.getBalance(addr2.address);
 
             const coupon = '';
-            expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: ethers.utils.parseUnits(`${12*0.23}` , 18) }))
+            const expectedAmount = amountWithDecimals - (amountWithDecimals * discount / 100);
+            expect(await contract.connect(addr1).pay(CREDENTIAL, coupon, { from:addr1.address, value: expectedAmount }))
                 .to.emit(govContract, 'CredentialPaid');
 
             const balance = await ethers.provider.getBalance(addr2.address);
-            const totalBalance = ethers.BigNumber.from(prevBalance).add( ethers.utils.parseUnits(`${12*0.23}`, 18) );
+            const totalBalance = ethers.BigNumber.from(prevBalance).add( expectedAmount );
             expect(`${balance}`).to.equal(`${totalBalance}`);
         });
 
         it("Can pay in ERC20 currency with discount", async function() {
+            const amount = 2;
+            const amountWithDecimals = amount * 10**6;
+            const discount = 38;
+
             // Transfer some USDC
             await usdcContract.connect(owner).transfer(addr2.address, 50 * 10**6, { from: owner.address });
             // Approve USDC spending
-            await usdcContract.connect(addr2).approve(contract.address, 10 * 10**6, { from: addr2.address});
+            await usdcContract.connect(addr2).approve(contract.address, amountWithDecimals, { from: addr2.address});
             // Confirm receiver wallet has 0 USDC
             expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(0);
 
-            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, 10 * 10**6, true, true, 71, { from: owner.address }))
+            await expect(govContract.connect(owner).updatePaymentCurrency("USDC", usdcContract.address, 6, amountWithDecimals, true, true, discount, { from: owner.address }))
                 .to.emit(govContract, 'PaymentCurrencyUpdated');
 
             const currency = await govContract.getCurrency(usdcContract.address);
@@ -690,10 +592,11 @@ describe("Selfkey Payment Tests", function () {
             await govContract.connect(owner).setAddress(RECEIVER_WALLET_INDEX, addr1.address, { from: owner.address });
 
             const coupon = '';
-            expect(await contract.connect(addr2).payToken(10 * 0.71 * 10**6, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
+            const expectedAmount = amountWithDecimals - (amountWithDecimals * discount / 100);
+            expect(await contract.connect(addr2).payToken(expectedAmount, usdcContract.address, CREDENTIAL, coupon, { from:addr2.address }))
                 .to.emit(govContract, 'CredentialPaid');
 
-            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(10 * 0.71 * 10**6);
+            expect(await usdcContract.connect(owner).balanceOf(addr1.address, { from: owner.address })).to.equal(expectedAmount);
             expect(await usdcContract.connect(owner).balanceOf(contract.address, { from: owner.address })).to.equal(0);
         });
     });

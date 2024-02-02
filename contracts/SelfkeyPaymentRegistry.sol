@@ -134,7 +134,7 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         uint expectedAmount = _currency.amount;
 
         if (_currency.discount > 0 && _currency.discount <= 100) {
-            expectedAmount = (_currency.amount * _currency.discount) / 100;
+            expectedAmount = _currency.amount - (_currency.amount * _currency.discount) / 100;
         }
 
         Coupons memory _coupon = governance.getValidCoupon(_couponCode, msg.sender);
@@ -181,7 +181,7 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
 
         uint expectedAmount = _currency.amount;
         if (_currency.discount > 0 && _currency.discount <= 100) {
-            expectedAmount = (_currency.amount * _currency.discount) / 100;
+            expectedAmount = _currency.amount - (_currency.amount * _currency.discount) / 100;
         }
 
         Coupons memory _coupon = governance.getValidCoupon(_couponCode, msg.sender);
@@ -251,32 +251,14 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
     }
 
     function _selectCouponValue(Coupons memory _coupon, uint256 expectedAmount) private pure returns(uint256) {
-        uint expectedFixedAmount = 0;
         uint expectedPercentageAmount = 0;
 
-        if (_coupon.amount > 0 && _coupon.amount <= expectedAmount) {
-            expectedFixedAmount = _coupon.amount;
-        }
         if (_coupon.discount > 0 && _coupon.discount < 100) {
-            expectedPercentageAmount = (expectedAmount * _coupon.discount) / 100;
+            expectedPercentageAmount = expectedAmount - (expectedAmount * _coupon.discount) / 100;
         }
         if (_coupon.discount > 0 && _coupon.discount == 100) {
             expectedPercentageAmount = 0;
         }
-        uint lowerExpectedValue = _selectLowerValue(expectedFixedAmount, expectedPercentageAmount);
-        return lowerExpectedValue;
-    }
-
-    function _selectLowerValue(uint256 _value1, uint256 _value2) private pure returns(uint256) {
-        if (_value1 > 0 && _value2 > 0) {
-            return _value1 < _value2 ? _value1 : _value2;
-        }
-        else if (_value1 > 0) {
-            return _value1;
-        }
-        else if (_value2 > 0) {
-            return _value2;
-        }
-        return 0;
+        return expectedPercentageAmount;
     }
 }
