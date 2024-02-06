@@ -4,13 +4,16 @@ async function main() {
     const [deployer] = await ethers.getSigners();
     console.log("Deploying contracts with the account:", deployer.address);
 
+    // Mumbai address
     const proxyAddress = "0xBCc5E951fEd05b660039cABF077a027Bb1dF018c";
 
-    const contractFactory = await hre.ethers.getContractFactory("SelfkeyPaymentRegistry");
-    const contract = await upgrades.upgradeProxy(proxyAddress, contractFactory, { timeout: 500000 });
-    await contract.deployed();
+    const contractFactory = await hre.ethers.getContractFactory("SelfkeyPaymentRegistryV1");
+    console.log('Implementation address: ' + await upgrades.erc1967.getImplementationAddress(proxyAddress));
+    console.log('Admin address: ' + await upgrades.erc1967.getAdminAddress(proxyAddress));
 
-    console.log("Deployed contract address:", contract.address);
+    const contract = await upgrades.forceImport(proxyAddress, contractFactory, { kind: 'transparent' });
+
+    console.log("Done", contract);
 
     // INFO: verify contract after deployment
     // npx hardhat verify --network mumbai 0xBCc5E951fEd05b660039cABF077a027Bb1dF018c

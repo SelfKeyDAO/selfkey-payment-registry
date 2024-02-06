@@ -4,8 +4,7 @@ pragma solidity 0.8.19;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import "./external/ISelfkeyGovernance.sol";
-// import "hardhat/console.sol";
+import "../external/ISelfkeyGovernance.sol";
 
 struct PaymentInfo {
     uint256 timestamp;
@@ -13,7 +12,7 @@ struct PaymentInfo {
     bool valid;
 }
 
-contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
+contract SelfkeyPaymentRegistryV1 is Initializable, AccessControlUpgradeable {
     bytes32 public constant ISSUER_ROLE = keccak256("ISSUER_ROLE");
     uint256 public constant TREASURY_WALLET_INDEX = 0;
 
@@ -124,31 +123,16 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         emit GovernanceContractChanged(governanceContractAddress);
     }
 
-    function payToken(uint _amount, address _tokenContractAddress, bytes32 _credentialType, string memory _couponCode) public whenNotPaused {
+    function payToken(uint _amount, address _tokenContractAddress, bytes32 _credentialType) public whenNotPaused {
         ISelfkeyGovernance governance = ISelfkeyGovernance(governanceContractAddress);
         bool _paymentEnabled = governance.entryFeeStatus();
         require(_paymentEnabled == true, "Selfkey Governance: payments are disabled");
 
         PaymentCurrency memory _currency = governance.getCurrency(_tokenContractAddress);
         require(_currency.active == true, "Selfkey Governance: ERC20 token payment not allowed");
-        uint expectedAmount = _currency.amount;
 
-        if (_currency.discount > 0 && _currency.discount <= 100) {
-            expectedAmount = _currency.amount - (_currency.amount * _currency.discount) / 100;
-        }
-
-        Coupons memory _coupon = governance.getValidCoupon(_couponCode, msg.sender);
-        // Get coupon if coupon is not empty
-        if (_coupon.active == true) {
-            require(_coupon.active == true, "Selfkey Governance: invalid coupon");
-            require(_coupon.expiry > block.timestamp || _coupon.expiry == 0, "Selfkey Governance: coupon expired");
-            uint _couponValue = _selectCouponValue(_coupon, expectedAmount);
-            expectedAmount = _couponValue < expectedAmount ? _couponValue : expectedAmount;
-        }
-
-        require(_amount >= expectedAmount, "Selfkey Governance: invalid amount");
-
-        require(expectedAmount <= getAllowance(_tokenContractAddress), "not enough allowance");
+        require(_amount >= _currency.amount, "Selfkey Governance: invalid amount");
+        require(_amount <= getAllowance(_tokenContractAddress), "not enough allowance");
 
         address _receiverWallet = governance.addresses(TREASURY_WALLET_INDEX);
         require(_receiverWallet != address(0), "Selfkey Governance: invalid treasury wallet");
@@ -156,22 +140,13 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         _cancelActivePayments(msg.sender, _credentialType);
 
         IERC20 token = IERC20(_tokenContractAddress);
-
-        // Transfer affiliate fee
-        if (bytes(_couponCode).length > 0 && _coupon.affiliateWallet != address(0)) {
-            uint256 _affiliateFee = (_amount * _coupon.affiliateShare) / 100;
-            token.transferFrom(msg.sender, _coupon.affiliateWallet, _affiliateFee);
-            token.transferFrom(msg.sender, _receiverWallet, _amount - _affiliateFee);
-        }
-        else {
-            token.transferFrom(msg.sender, _receiverWallet, _amount);
-        }
+        token.transferFrom(msg.sender, _receiverWallet, _amount);
 
         _paymentRegistry[msg.sender].push(PaymentInfo(block.timestamp, _credentialType, true));
         emit CredentialPaid(msg.sender, _tokenContractAddress, _amount);
     }
 
-    function pay(bytes32 _credentialType, string memory _couponCode) public payable whenNotPaused {
+    function pay(bytes32 _credentialType) public payable whenNotPaused {
         ISelfkeyGovernance governance = ISelfkeyGovernance(governanceContractAddress);
         bool _paymentEnabled = governance.entryFeeStatus();
         require(_paymentEnabled == true, "Selfkey Governance: payments are disabled");
@@ -179,40 +154,15 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         PaymentCurrency memory _currency = governance.getCurrency(address(0));
         require(_currency.active == true, "Selfkey Governance: native payment not allowed");
 
-        uint expectedAmount = _currency.amount;
-        if (_currency.discount > 0 && _currency.discount <= 100) {
-            expectedAmount = _currency.amount - (_currency.amount * _currency.discount) / 100;
-        }
-
-        Coupons memory _coupon = governance.getValidCoupon(_couponCode, msg.sender);
-        // Get coupon if coupon is not empty
-        if (_coupon.active == true) {
-            require(_coupon.active == true, "Selfkey Governance: invalid coupon");
-            require(_coupon.expiry > block.timestamp || _coupon.expiry == 0, "Selfkey Governance: coupon expired");
-            uint _couponValue = _selectCouponValue(_coupon, expectedAmount);
-            expectedAmount = _couponValue < expectedAmount ? _couponValue : expectedAmount;
-        }
-        require(msg.value >= expectedAmount, "Selfkey Governance: invalid amount");
+        require(msg.value >= _currency.amount, "Selfkey Governance: invalid amount");
 
         address _receiverWallet = governance.addresses(TREASURY_WALLET_INDEX);
         require(_receiverWallet != address(0), "Selfkey Governance: invalid treasury wallet");
 
         _cancelActivePayments(msg.sender, _credentialType);
 
-         if (bytes(_couponCode).length > 0 && _coupon.affiliateWallet != address(0)) {
-            uint256 _affiliateFee = (msg.value * _coupon.affiliateShare) / 100;
-
-            (bool sentAffiliate, ) = _coupon.affiliateWallet.call{value: _affiliateFee}("");
-            require(sentAffiliate, "Failed to send Ether to affiliate");
-
-            (bool sent, ) = _receiverWallet.call{value: (msg.value - _affiliateFee)}("");
-            require(sent, "Failed to send Ether");
-
-        }
-        else {
-            (bool sent, ) = _receiverWallet.call{value: msg.value}("");
-            require(sent, "Failed to send Ether");
-        }
+        (bool sent, ) = _receiverWallet.call{value: msg.value}("");
+        require(sent, "Failed to send Ether");
 
         _paymentRegistry[msg.sender].push(PaymentInfo(block.timestamp, _credentialType, true));
         emit CredentialPaid(msg.sender, address(0), msg.value);
@@ -248,17 +198,5 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
                 emit PaymentCancelled(_address, record.timestamp);
             }
         }
-    }
-
-    function _selectCouponValue(Coupons memory _coupon, uint256 expectedAmount) private pure returns(uint256) {
-        uint expectedPercentageAmount = 0;
-
-        if (_coupon.discount > 0 && _coupon.discount < 100) {
-            expectedPercentageAmount = expectedAmount - (expectedAmount * _coupon.discount) / 100;
-        }
-        if (_coupon.discount > 0 && _coupon.discount == 100) {
-            expectedPercentageAmount = 0;
-        }
-        return expectedPercentageAmount;
     }
 }
