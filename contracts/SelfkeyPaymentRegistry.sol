@@ -126,8 +126,8 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
 
     function payToken(uint _amount, address _tokenContractAddress, bytes32 _credentialType, string memory _couponCode) public whenNotPaused {
         ISelfkeyGovernance governance = ISelfkeyGovernance(governanceContractAddress);
-        // bool _paymentEnabled = governance.entryFeeStatus();
-        // require(_paymentEnabled == true, "Selfkey Governance: payments are disabled");
+        bool _paymentEnabled = governance.entryFeeStatus();
+        require(_paymentEnabled == true, "Selfkey Governance: payments are disabled");
 
         PaymentCurrency memory _currency = governance.getCurrency(_tokenContractAddress);
         require(_currency.active == true, "Selfkey Governance: ERC20 token payment not allowed");
