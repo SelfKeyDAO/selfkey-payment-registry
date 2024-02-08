@@ -158,13 +158,16 @@ contract SelfkeyPaymentRegistry is Initializable, AccessControlUpgradeable {
         IERC20 token = IERC20(_tokenContractAddress);
 
         // Transfer affiliate fee
-        if (bytes(_couponCode).length > 0 && _coupon.affiliateWallet != address(0)) {
-            uint256 _affiliateFee = (_amount * _coupon.affiliateShare) / 100;
-            token.transferFrom(msg.sender, _coupon.affiliateWallet, _affiliateFee);
-            token.transferFrom(msg.sender, _receiverWallet, _amount - _affiliateFee);
-        }
-        else {
-            token.transferFrom(msg.sender, _receiverWallet, _amount);
+        {
+            uint amount = _amount;
+            if (bytes(_couponCode).length > 0 && _coupon.affiliateWallet != address(0)) {
+                uint256 _affiliateFee = (_amount * _coupon.affiliateShare) / 100;
+                token.transferFrom(msg.sender, _coupon.affiliateWallet, _affiliateFee);
+                token.transferFrom(msg.sender, _receiverWallet, amount - _affiliateFee);
+            }
+            else {
+                token.transferFrom(msg.sender, _receiverWallet, amount);
+            }
         }
 
         _paymentRegistry[msg.sender].push(PaymentInfo(block.timestamp, _credentialType, true));
