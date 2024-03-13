@@ -1,7 +1,7 @@
-# Selfkey Payments Registry contract
+# Selfkey DAO Payments Registry contract
 
 ## Overview
-Payments registry for Selfkey.ID
+Selfkey DAO Token Payments Contract
 
 ## Development
 
@@ -20,11 +20,8 @@ All smart contracts are implemented in Solidity `^0.8.19`, using [Hardhat](https
 
     `npx hardhat test`
 
-### Deploy
+## Contributing
+Please see the [contributing notes](CONTRIBUTING.md).
 
-    `npx hardhat run scripts/deploy.js --network mumbai`
-    `npx hardhat verify --network mumbai 0xBCc5E951fEd05b660039cABF077a027Bb1dF018c`
-
-### Propose upgrade
-
-    `npx hardhat run scripts/propose_upgrade.js --network mumbai`
+## Copyright
+Copyright SelfKey DAO Foundation 2024. All rights reserved.
